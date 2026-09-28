@@ -1,1 +1,1 @@
-"""Infraestructura común: configuración, base de datos, seguridad, errores y logging."""
+"""Infraestructura común: configuración, seguridad, errores y logging."""

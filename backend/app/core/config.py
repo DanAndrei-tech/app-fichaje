@@ -21,8 +21,9 @@ class Settings(BaseSettings):
     log_level: str = "info"
     api_v1_prefix: str = "/api/v1"
 
-    # Se usará en la fase de base de datos; aún no se abre ninguna conexión.
-    database_url: str | None = None
+    # Obligatoria: sin ella la aplicación no arranca.
+    # Formato: postgresql+psycopg://usuario:contraseña@host:puerto/base_de_datos
+    database_url: str
 
 
 @lru_cache

@@ -1,8 +1,12 @@
 """Entorno de ejecución de Alembic.
 
-Todavía no hay modelos: target_metadata es None, así que no se puede
-autogenerar ninguna migración. En la fase de modelos se apuntará al
-metadata de SQLAlchemy de la aplicación.
+target_metadata apunta al metadata de la Base declarativa. Los modelos se
+registran en app/db/models.py; al importarlo aquí, Alembic puede compararlos
+con la base de datos (`alembic check`) y autogenerar migraciones.
+
+La URL de conexión sale de DATABASE_URL, salvo que quien invoque Alembic ya
+haya fijado "sqlalchemy.url" (p. ej. los tests, para migrar la base de datos
+de tests).
 """
 
 from logging.config import fileConfig
@@ -11,17 +15,18 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
+from app.db.models import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-if not settings.database_url:
-    raise RuntimeError("DATABASE_URL no está definida.")
-config.set_main_option("sqlalchemy.url", settings.database_url)
+if not config.get_main_option("sqlalchemy.url"):
+    # "%" se duplica porque el .ini de Alembic lo trata como interpolación.
+    config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
