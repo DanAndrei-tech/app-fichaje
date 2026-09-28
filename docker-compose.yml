@@ -1,0 +1,62 @@
+# Entorno de DESARROLLO. La configuración de producción se hará en su propia fase.
+#
+# Los valores ${VAR} se leen del archivo .env de esta carpeta.
+# "${VAR:-x}" usa "x" si la variable no está definida.
+# "${VAR:?mensaje}" detiene el arranque con ese mensaje si falta la variable.
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fichaje}
+      POSTGRES_USER: ${POSTGRES_USER:-fichaje}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD. Copia .env.example a .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Volumen con nombre: los datos sobreviven a "docker compose down".
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL:?Falta DATABASE_URL. Copia .env.example a .env}
+      JWT_SECRET: ${JWT_SECRET:-}
+      PIN_HMAC_SECRET: ${PIN_HMAC_SECRET:-}
+      # En Windows/macOS los cambios de archivos montados no siempre llegan
+      # al contenedor; el sondeo garantiza que --reload los detecte.
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Monta el código para que los cambios se vean sin reconstruir la imagen.
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      # Destino del proxy /api de Vite: dentro de Docker, el servicio "backend".
+      API_PROXY_TARGET: http://backend:8000
+      WATCH_POLLING: "true"
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      # Volumen anónimo: conserva el node_modules instalado en la imagen
+      # y evita que el montaje anterior lo oculte con el de tu máquina.
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
