@@ -4,7 +4,7 @@ Aplicación web SaaS de **control horario / fichaje de empleados** para varias e
 
 Cada empresa tiene su propio **terminal de fichaje** (`/clock/{slug}`), que puede ser un móvil, una tablet o un PC. Los empleados fichan en él con un PIN. Los administradores gestionan empleados, fichajes, informes y auditoría desde el **panel de administración** (`/admin`).
 
-> Estado: **fase 2 — infraestructura de base de datos**. Todavía no hay lógica de negocio (ver [Estado actual](#estado-actual)).
+> Estado: **fase 3 — modelo de datos**. Todavía no hay lógica de negocio (ver [Estado actual](#estado-actual)).
 
 ---
 
@@ -39,11 +39,12 @@ Se incorporarán en sus fases: TanStack Query, React Hook Form, Zod, JWT y PWA.
 .
 ├── docker-compose.yml       # Entorno de desarrollo: db + backend + frontend
 ├── .env.example             # Plantilla de variables de entorno (sin secretos reales)
+├── docs/                    # Documentación técnica (modelo de datos)
 ├── backend/
 │   ├── Dockerfile
 │   ├── pyproject.toml       # Dependencias y configuración de pytest
 │   ├── alembic.ini          # Configuración de migraciones
-│   ├── alembic/             # Entorno de Alembic (aún sin migraciones)
+│   ├── alembic/             # Entorno y migraciones de Alembic
 │   ├── app/
 │   │   ├── main.py          # Crea la app FastAPI
 │   │   ├── core/            # Configuración e infraestructura común
@@ -51,7 +52,7 @@ Se incorporarán en sus fases: TanStack Query, React Hook Form, Zod, JWT y PWA.
 │   │   ├── tenancy/         # Contexto de empresa (TenantContext)
 │   │   ├── auth/            # Autenticación de administración y permisos
 │   │   ├── api/             # deps.py (dependencias comunes) y v1/ (router y /health)
-│   │   └── modules/         # companies, users, employees, terminals, clock, reports, audit
+│   │   └── modules/         # companies, users, employees, terminals, clock, reports, audit (models.py en cada uno)
 │   └── tests/               # conftest.py prepara la base de datos de tests
 └── frontend/
     ├── Dockerfile
@@ -107,6 +108,7 @@ docker compose down -v     # además BORRA el volumen de PostgreSQL (todos los d
 
 ```bash
 docker compose exec backend pytest            # tests del backend (usan la BD fichaje_test)
+docker compose exec backend alembic upgrade head  # aplicar las migraciones pendientes
 docker compose exec backend alembic current   # revisión aplicada en la BD de desarrollo
 docker compose exec backend alembic check     # ¿hay cambios en los modelos sin migración?
 docker compose exec frontend npm run typecheck # comprobación de tipos del frontend
@@ -124,6 +126,7 @@ docker compose logs -f backend                # ver logs de un servicio
 
 - **Conexión**: SQLAlchemy 2.x con psycopg 3. La URL sale de `DATABASE_URL` ([backend/app/db/session.py](backend/app/db/session.py)).
 - **Sesión por petición**: los endpoints reciben una sesión con la dependencia `DbSession` ([backend/app/api/deps.py](backend/app/api/deps.py)). Si el endpoint termina bien se hace *commit*; si lanza una excepción, *rollback*. La sesión se cierra siempre, y todo ocurre **antes** de enviar la respuesta.
+- **Modelo de datos**: 8 tablas (empresas, usuarios, empleados, terminales, jornadas, pausas, eventos de fichaje y auditoría). Ver **[docs/modelo-de-datos.md](docs/modelo-de-datos.md)**.
 - **Modelos**: heredan de `Base` ([backend/app/db/base.py](backend/app/db/base.py)) y se registran en [backend/app/db/models.py](backend/app/db/models.py) para que Alembic los detecte.
 - **Identificadores**: UUID nativo de PostgreSQL (`Mapped[uuid.UUID]`).
 - **Fechas y horas**: siempre `TIMESTAMP WITH TIME ZONE` (`Mapped[datetime]`). La aplicación trabaja con instantes en **UTC**. La zona horaria de cada empresa se guarda como nombre **IANA** (p. ej. `Europe/Madrid`) y solo se usa para mostrar y agrupar por día o semana.
@@ -132,7 +135,7 @@ docker compose logs -f backend                # ver logs de un servicio
 
 ### Base de datos de tests
 
-Los tests **nunca** usan la base de datos de desarrollo. Usan `fichaje_test` (el nombre de `DATABASE_URL` + `_test`) en el mismo servidor PostgreSQL, y la crean automáticamente si no existe. Se puede usar otra con `TEST_DATABASE_URL`, pero su nombre debe terminar en `_test`. Cada test trabaja dentro de una transacción que se deshace al terminar ([backend/tests/conftest.py](backend/tests/conftest.py)).
+Los tests **nunca** usan la base de datos de desarrollo. Usan `fichaje_test` (el nombre de `DATABASE_URL` + `_test`) en el mismo servidor PostgreSQL, y la crean automáticamente si no existe. Se puede usar otra con `TEST_DATABASE_URL`, pero su nombre debe terminar en `_test`. Al empezar, su esquema se reconstruye con las migraciones reales (`alembic upgrade head`). Cada test trabaja dentro de una transacción que se deshace al terminar ([backend/tests/conftest.py](backend/tests/conftest.py)).
 
 ## Estado actual
 
@@ -152,4 +155,12 @@ Los tests **nunca** usan la base de datos de desarrollo. Usan `fichaje_test` (el
 - Health que comprueba también PostgreSQL.
 - Base de datos de tests separada y tests de conexión, sesión y health.
 
-**Pendiente (fases siguientes):** modelos, empresas, autenticación, empleados, PIN, terminales, fichaje, horas, auditoría, panel de administración, PWA, hardening y producción.
+**Implementado (fase 3):**
+
+- Modelo de datos: `companies`, `users`, `employees`, `terminals`, `work_sessions`, `work_breaks`, `clock_events` y `audit_logs`.
+- Aislamiento multiempresa en la base de datos con claves foráneas compuestas `(company_id, x_id)`.
+- Constraints, índices y la migración inicial, reversible.
+- Inmutabilidad de eventos y auditoría a nivel de ORM.
+- Tests del modelo de datos.
+
+**Pendiente (fases siguientes):** autenticación, gestión de empresas y empleados, PIN, terminales, fichaje, horas, auditoría, panel de administración, PWA, hardening y producción.

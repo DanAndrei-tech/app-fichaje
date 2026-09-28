@@ -17,14 +17,21 @@ Cada test que usa `db_session` (o `client`) trabaja dentro de una transacción
 que se deshace al terminar: nada de lo que haga queda guardado. Los commits
 de la aplicación se convierten en SAVEPOINTs dentro de esa transacción.
 
-Cuando existan modelos, la fixture `db_engine` aplicará las migraciones
-(alembic upgrade head) sobre la base de datos de tests.
+Esquema
+-------
+Al empezar la sesión de tests, el esquema de la base de datos de tests se
+borra y se reconstruye con las migraciones reales (alembic upgrade head), no
+con create_all: así los tests prueban exactamente lo que se aplica en
+desarrollo y producción.
 """
 
 import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import URL, Engine, create_engine, make_url, text
 from sqlalchemy.orm import Session
@@ -50,6 +57,7 @@ def _test_database_url() -> URL:
 
 
 TEST_DATABASE_URL = _test_database_url()
+ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 
 def _create_database_if_missing(url: URL) -> None:
@@ -68,11 +76,29 @@ def _create_database_if_missing(url: URL) -> None:
         admin_engine.dispose()
 
 
+def alembic_config(url: URL) -> Config:
+    """Configuración de Alembic apuntando a `url` en lugar de DATABASE_URL."""
+    config = Config(str(ALEMBIC_INI))
+    config.set_main_option(
+        "sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%")
+    )
+    return config
+
+
+def _reset_schema(engine: Engine) -> None:
+    # Solo se ejecuta sobre la BD de tests (su nombre ya se ha comprobado).
+    with engine.begin() as connection:
+        connection.execute(text("DROP SCHEMA public CASCADE"))
+        connection.execute(text("CREATE SCHEMA public"))
+
+
 @pytest.fixture(scope="session")
 def db_engine() -> Iterator[Engine]:
-    """Engine conectado a la base de datos de tests (uno para toda la sesión de tests)."""
+    """Engine de la BD de tests, con el esquema recién migrado (uno por sesión de tests)."""
     _create_database_if_missing(TEST_DATABASE_URL)
     engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+    _reset_schema(engine)
+    command.upgrade(alembic_config(TEST_DATABASE_URL), "head")
     yield engine
     engine.dispose()
 

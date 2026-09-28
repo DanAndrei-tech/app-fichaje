@@ -20,7 +20,9 @@ from app.db.models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: no silenciar los loggers de la aplicación
+    # cuando Alembic se ejecuta desde los tests.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 if not config.get_main_option("sqlalchemy.url"):
     # "%" se duplica porque el .ini de Alembic lo trata como interpolación.

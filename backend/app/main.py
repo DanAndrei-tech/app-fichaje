@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+import app.db.models  # noqa: F401  (registra todos los modelos SQLAlchemy)
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.db.session import engine
